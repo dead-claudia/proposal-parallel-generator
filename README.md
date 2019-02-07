@@ -70,8 +70,16 @@ class Driver {
             }
         })()
     }
-    undo() { if (this._index !== 0) this._index-- },
-    redo() { if (this._index !== this._states.length) this._index++ },
+    async undo() {
+        if (this._index !== 0) {
+            await (0, this._states[this._index--].undo)()
+        }
+    },
+    async redo() {
+        if (this._index !== this._states.length) {
+            await (0, this._states[++this._index].redo)()
+        }
+    },
     get labels() { return this._states.slice(1).map(state => state.label) },
     get current() { return this._states[this._index].label },
     get currentIndex() { return this._index - 1 },
@@ -89,6 +97,7 @@ class Driver {
                 states[++this._index] = {
                     label: action.type, gen,
                     limit: Math.min(limit, params.limit),
+                    undo: params.undo, redo: params.undo,
                     active: 1,
                 }
                 states.length = this._index + 1
@@ -99,3 +108,14 @@ class Driver {
     }
 }
 ```
+
+### Potential FAQs
+
+Q: Isn't this basically continuations?
+A: Yes in that it's equivalent to them. Really, they operate somewhere between them and algebraic effects, and combined with an appropriate driver, could technically emulate them pretty easily. But yes, `gen.fork()` is not unlike saving a continuation to fire later.
+
+Q: Why a subtype? Why not just add this to all generators?
+A: Not all generators *can* be safely split like this. Many built-in ones like array iterators *could*, but some, like async iterators firing network requests, really *shouldn't* be splittable.
+
+Q: Why not offer a `tee` method and have generators (or a subtype thereof) override it?
+A: Because that implies a buffer, which is *not* what this proposal is shooting for - it's specifically looking to replay the effects wholesale, with external state potentially having changed in the meantime.
