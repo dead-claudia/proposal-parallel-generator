@@ -1,6 +1,8 @@
-# Forkable generators
+# Immutable generators
 
-I'm suggesting we add a `multi function *gen() { ... }` to allow a generator to be forked and entered from a state multiple times. This would return a generator with a `.fork()` method that returns a new forkable generator cloned from the existing generator's state.
+There should be a syntax `function **gen() { ... }` to create an immutable generator where you can resume from the same state multiple times. The first call would return an iterator result with an `undefined` value and `done: false`, starting at the first value. Each immutable iterator result contains the usual `done` and `value` properties, but also a `.next(value)` method to move to the next iteration and get the next state, a `.throw(value)` which works similarly, and a `.return(value)` that works similarly. Each result would also be iterable, where you can iterate to the last result.
+
+Syntactically, it'd otherwise look like generators, aside from the extra asterisk after `function`.
 
 ### Why?
 
@@ -17,15 +19,15 @@ import Api from '...'
  * Starts fetchUser on each dispatched `USER_FETCH_REQUESTED` action.
  * Allows concurrent fetches of user.
  */
-async multi function *mySaga() {
-    const {type, ...action} = yield ["receive"]
+async function **mySaga(send) {
+    const {type, ...action} = yield
 
     if (type === "USER_FETCH_REQUESTED") {
         try {
             const user = await Api.fetchUser(action.payload.userId)
-            yield ["send", {type: "USER_FETCH_SUCCEEDED", user: user}]
+            send({type: "USER_FETCH_SUCCEEDED", user: user})
         } catch (e) {
-            yield ["send", {type: "USER_FETCH_FAILED", message: e.message}]
+            send({type: "USER_FETCH_FAILED", message: e.message})
         }
     }
 }
@@ -35,15 +37,15 @@ async multi function *mySaga() {
  * dispatched while a fetch is already pending, that pending fetch is cancelled
  * and only the latest one will be run.
  */
-async multi function* mySaga() {
-    const {type, ...action} = yield ["receive", {last: 1}]
+async function **mySaga(send) {
+    const {type, ...action} = yield {last: 1}
 
     if (type === "USER_FETCH_REQUESTED") {
         try {
             const user = await Api.fetchUser(action.payload.userId)
-            yield ["send", {type: "USER_FETCH_SUCCEEDED", user: user}]
+            send({type: "USER_FETCH_SUCCEEDED", user: user})
         } catch (e) {
-            yield ["send", {type: "USER_FETCH_FAILED", message: e.message}]
+            send({type: "USER_FETCH_FAILED", message: e.message})
         }
     }
 }
@@ -51,63 +53,35 @@ async multi function* mySaga() {
 export default mySaga
 ```
 
-From the consumer side, you could make a relatively simple driver for this, complete with undo/redo support:
+You also might choose to make virtual DOM components out of this, unnesting a lot of logic in the process and using the language for things that would ordinarily require explicit user hooks, like for error handling.
 
 ```js
-class Driver {
-    constructor(gen, send) {
-        this._states = []
-        this._index = 0
-        this._send = send
-        this._start = (async () => {
-            for await (const [type, params] of gen) {
-                if (type === "receive") {
-                    this._states[0] = {label: undefined, gen, limit: +params.limit, active: 1}
-                    this._start = undefined
-                    return
-                }
-                if (type === "send") (0, this._send)(params)
-            }
-        })()
-    }
-    async undo() {
-        if (this._index !== 0) {
-            await (0, this._states[this._index--].undo)()
-        }
-    },
-    async redo() {
-        if (this._index !== this._states.length) {
-            await (0, this._states[++this._index].redo)()
-        }
-    },
-    get labels() { return this._states.slice(1).map(state => state.label) },
-    get current() { return this._states[this._index].label },
-    get currentIndex() { return this._index - 1 },
-    async dispatch(action) {
-        if (this._start != null) await this._start
-        const state = this._states[this._index]
-        if (state.active === state.limit) return
-        state.active++
-        const gen = state.gen.fork()
-        while (true) {
-            const result = await gen.next(action)
-            if (result.done) { state.active--; return }
-            const [type, params] = result.value
-            if (type === "receive") {
-                states[++this._index] = {
-                    label: action.type, gen,
-                    limit: Math.min(limit, params.limit),
-                    undo: params.undo, redo: params.undo,
-                    active: 1,
-                }
-                states.length = this._index + 1
-                return
-            }
-            if (type === "send") (0, this._send)(params)
-        }
+function **MyComponent() {
+    // Set up some component-local state
+    let cleanup
+
+    // Get the attributes, return early if nothing changed.
+    const attrs = yield "attrs"
+    if (!attrsChanged(attrs)) return cleanup
+
+    try {
+        // Render a tree
+        const {elem} = yield h("div", {ref: "elem"}, [
+            "some tree using ", attrs.value
+        ])
+
+        // And mutate it after it's been committed
+        elem.classList.add("fancy")
+
+        // Do something on cleanup
+        return cleanup = () => elem.classList.remove("fancy")
+    } catch (e) {
+        // Catch an error thrown either here or in a child
     }
 }
 ```
+
+I'm leaving the drivers for each as an exercise for the reader, but trust me in that they aren't that complicated to construct. It's like generators, but you call `nextResult = prevResult.next(value)` instead of `nextResult = iter.next(value)`. (Well, maybe the virtual DOM example might be a little difficult, but it's not *too* difficult.)
 
 ### Potential FAQs
 
@@ -115,7 +89,7 @@ Q: Isn't this basically continuations?
 A: Yes in that it's equivalent to them. Really, they operate somewhere between them and algebraic effects, and combined with an appropriate driver, could technically emulate them pretty easily. But yes, `gen.fork()` is not unlike saving a continuation to fire later.
 
 Q: Why a subtype? Why not just add this to all generators?
-A: Not all generators *can* be safely split like this. Many built-in ones like array iterators *could*, but some, like async iterators firing network requests, really *shouldn't* be splittable.
+A: Not all generators *can* be safely split like this. Many built-in ones like array iterators *could*, but some, like async iterators firing network requests, really *shouldn't* be splittable. This arose from some initial feedback.
 
 Q: Why not offer a `tee` method and have generators (or a subtype thereof) override it?
 A: Because that implies a buffer, which is *not* what this proposal is shooting for - it's specifically looking to replay the effects wholesale, with external state potentially having changed in the meantime.
