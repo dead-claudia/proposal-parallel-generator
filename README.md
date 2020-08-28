@@ -16,25 +16,25 @@ Here's an example of how this might be used in practice, adapted from Redux Saga
 import Api from "..."
 
 /*
- * Starts fetchUser on each dispatched `USER_FETCH_REQUESTED` action.
- * Allows concurrent fetches of user.
+ * Starts fetchUser on each dispatched `FETCH_USER` action.
+ * This can happen concurrently, too.
  */
 async function **reducer(model) {
-    const {type, ...action} = yield
+    while (true) {
+        const {type, ...action} = yield
 
-    if (type === "FETCH_USER") {
-        try {
-            const user = await Api.fetchUser(action.userId)
-            model.update({type: "USER_FETCH_SUCCEEDED", user: user})
-        } catch (e) {
-            model.update({type: "USER_FETCH_FAILED", message: e.message})
+        if (type === "FETCH_USER") {
+            try {
+                const user = await Api.fetchUser(action.userId)
+                model.update({type: "USER_FETCH_SUCCEEDED", user: user})
+            } catch (e) {
+                model.update({type: "USER_FETCH_FAILED", message: e.message})
+            }
         }
     }
-
-    // ...
 }
 
-export default mySaga
+export default reducer
 ```
 
 The view might do something like this:
