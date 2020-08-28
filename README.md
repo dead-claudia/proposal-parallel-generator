@@ -52,3 +52,7 @@ function View({userId}) {
     // render view
 }
 ```
+
+### What happens if `.throw` or `.return` is called while it executes?
+
+Existing pending blocks will continue until they either return, throw, or yield, then in case of `yield`, it returns `{done: true, value: arg}` for `.return(arg)` or throws `arg` for `.throw(arg)`. That way, it stays consistent and has a defined pathway even if things go wonky, and the generator is able to clean up after itself. It may be appropriate to also integrate with cancellation somehow.
