@@ -6,7 +6,7 @@ Syntactically, it'd otherwise look like generators, aside from the extra asteris
 
 ### Why?
 
-Generators are really coroutines, and coroutines are really convenient for certain types of state machines. But sometimes, it's easier to model a state machine as a [decision tree](https://en.wikipedia.org/wiki/Decision_tree) of sorts. One concrete example of this is user input - [it's often much easier to model it as a user storyline rather than a state machine with a bunch of complex inputs](https://github.com/redux-saga/redux-saga). It also makes it far easier to implement undo/redo, since you could just save and revert back to the previous generator state and update the view appropriately.
+Generators are really coroutines, and coroutines are really convenient for certain types of state machines. But sometimes, it's easier to model a state machine as a [decision tree](https://en.wikipedia.org/wiki/Decision_tree) of sorts. One concrete example of this is user input - [it's often much easier to model it as a user storyline rather than a state machine with a bunch of complex inputs](https://github.com/redux-saga/redux-saga).
 
 ### Example
 
